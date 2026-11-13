@@ -1,0 +1,59 @@
+name: GPU Simulator diag
+
+on:
+  push:
+    branches: [ diag-gpu-sim ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: diag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+          submodules: true
+
+      - name: Set up the simulated GPU and ROCm
+        uses: pantheongpu/setup-pantheonsim@ab71a07326835be678918901c340d53a83358067 # v0.1.6
+        with:
+          gpu: amd/mi300x
+          cuda-toolkit: none
+          rocm: "7.1"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y comgr hipfft-dev rocfft-dev rocprim-dev rocthrust-dev \
+            python3-dev python3-numpy python3-matplotlib
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=hipcc \
+            -DKokkos_ENABLE_HIP=ON \
+            -DKokkos_ENABLE_OPENMP=OFF \
+            -DKokkos_ENABLE_HIP_MULTIPLE_KERNEL_INSTANTIATIONS=ON \
+            -DKokkos_ARCH_AMD_GFX942=ON \
+            -DEXADIS_USE_COMPUTE_MAPS=ON \
+            -DEXADIS_BUILD_TESTS=ON \
+            -DPYTHON_EXECUTABLE=/usr/bin/python3
+
+      - name: Build
+        run: time cmake --build build -j3
+
+      - name: Test
+        working-directory: tests/unit_tests
+        run: |
+          sed -i 's/timeout=30)/timeout=3000)/' run_tests.py
+          sed -i 's/^\(\s*\)num_passed += run_test(\(.*\))$/\1t0 = time.perf_counter(); num_passed += run_test(\2); print(f"  time {test_name}: {time.perf_counter()-t0:.1f} s", flush=True)/' run_tests.py
+          grep -n "timeout=\|t0 = " run_tests.py
+          vgpu run /usr/bin/python3 -u run_tests.py --noplot --build_path=../../build || true
+          echo "--- direct runs"
+          for a in test_initialize test_memory test_unified_memory; do vgpu run ../../build/tests/test_kokkos $a; done
+          HSA_XNACK=1 vgpu run ../../build/tests/test_kokkos test_unified_memory
