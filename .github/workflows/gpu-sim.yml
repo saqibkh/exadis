@@ -22,6 +22,11 @@ jobs:
       - name: repro
         working-directory: repro
         run: |
+          for x in clampf clamp; do
+            hipcc -O3 --offload-arch=gfx942 --save-temps -c $x.cpp -o $x.o 2>/dev/null; grep -n "clamp$" $x-hip-amdgcn-amd-amdhsa-gfx942.s
+            hipcc -O3 --offload-arch=gfx942 $x.cpp -o $x; vgpu run ./$x || true
+          done
+          exit 0
           hipcc -O3 --offload-arch=gfx942 --save-temps -c clamp.cpp -o c.o 2>/dev/null
           echo "--- clamp.s"; sed -n '/^_Z1kPKdS0_Pd:/,/s_endpgm/p' clamp-hip-amdgcn-amd-amdhsa-gfx942.s
           hipcc -O3 --offload-arch=gfx942 clamp.cpp -o clamp
