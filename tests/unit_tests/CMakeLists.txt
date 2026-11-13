@@ -2,6 +2,7 @@
 set(TESTS
     test_force
     test_neighbor
+    diag_segseg
 )
 
 foreach(TEST ${TESTS})

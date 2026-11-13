@@ -47,13 +47,14 @@ jobs:
       - name: Build
         run: time cmake --build build -j3
 
-      - name: Test
+      - name: Diag
         working-directory: tests/unit_tests
         run: |
-          sed -i 's/timeout=30)/timeout=3000)/' run_tests.py
-          sed -i 's/^\(\s*\)num_passed += run_test(\(.*\))$/\1t0 = time.perf_counter(); num_passed += run_test(\2); print(f"  time {test_name}: {time.perf_counter()-t0:.1f} s", flush=True)/' run_tests.py
-          grep -n "timeout=\|t0 = " run_tests.py
-          vgpu run /usr/bin/python3 -u run_tests.py --noplot --build_path=../../build || true
-          echo "--- direct runs"
-          for a in test_initialize test_memory test_unified_memory; do vgpu run ../../build/tests/test_kokkos $a; done
-          HSA_XNACK=1 vgpu run ../../build/tests/test_kokkos test_unified_memory
+          vgpu run ../../build/tests/unit_tests/diag_segseg
+          for t in test_segseglist test_subgroups; do echo "== $t"; vgpu run ../../build/tests/unit_tests/test_neighbor $t 2>/dev/null; done
+          vgpu run ../../build/tests/unit_tests/test_force cutoff 2>/dev/null > cutoff.txt
+          python3 -c "
+          import numpy as np
+          e=np.loadtxt('expected_output/test_force_cutoff.dat'); a=np.loadtxt('cutoff.txt').reshape(e.shape)
+          bad=~np.isclose(a,e,rtol=1e-4); print('bad rows', bad.any(axis=1).sum(), 'of', e.shape)
+          print(np.c_[e[bad.any(axis=1)][:5], a[bad.any(axis=1)][:5]])"
