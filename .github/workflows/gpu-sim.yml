@@ -8,6 +8,28 @@ permissions:
   contents: read
 
 jobs:
+  repro:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: pantheongpu/setup-pantheonsim@ab71a07326835be678918901c340d53a83358067 # v0.1.6
+        with:
+          gpu: amd/mi300x
+          cuda-toolkit: none
+          rocm: "7.1"
+      - name: repro
+        working-directory: repro
+        run: |
+          for o in -O3 -O2 -O1; do
+            echo "== $o"
+            hipcc $o --offload-arch=gfx942 mindist.cpp -o md
+            vgpu run ./md pairs_dump.txt || true
+          done
+          hipcc -O3 --offload-arch=gfx942 --save-temps -c mindist.cpp -o md.o 2>/dev/null || true
+          ls
+          f=$(ls *gfx942*.s | head -1); echo "$f"; grep -E "^\s+v_|^\s+s_" "$f" | awk '{print $1}' | sort | uniq -c | sort -rn
   test:
     name: diag
     runs-on: ubuntu-24.04
@@ -51,6 +73,7 @@ jobs:
         working-directory: tests/unit_tests
         run: |
           vgpu run ../../build/tests/unit_tests/diag_segseg
+          head -3 pairs_dump.txt
           for t in test_segseglist test_subgroups; do echo "== $t"; vgpu run ../../build/tests/unit_tests/test_neighbor $t 2>/dev/null; done
           vgpu run ../../build/tests/unit_tests/test_force cutoff 2>/dev/null > cutoff.txt
           python3 -c "
